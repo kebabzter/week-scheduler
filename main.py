@@ -1,10 +1,17 @@
 from datetime import time, timedelta
 
 WORK_DAYS = {"Mon", "Tue", "Thu", "Fri"}
-MEALS_PER_PREP = 3  # 3 lunches and 3 dinners per meal prep
 
-available_lunches = MEALS_PER_PREP
-available_dinners = MEALS_PER_PREP
+# ANSI color codes for terminal output
+COLOR_RESET = '\033[0m'
+COLOR_BOLD = '\033[1m'
+COLOR_MORNING = '\033[95m'
+COLOR_LECTURE = '\033[94m'
+COLOR_STUDY = '\033[92m'
+COLOR_MEAL = '\033[93m'
+COLOR_WORK = '\033[91m'
+COLOR_RELAX = '\033[96m'
+
 
 def merge_blocks(blocks):
     blocks = sorted(blocks, key=lambda x: x[0])
@@ -20,6 +27,7 @@ def merge_blocks(blocks):
                 merged.append([start, end, task])
     return [(s, e, t) for s, e, t in merged]
 
+
 def add_minutes(t, mins):
     full_minutes = t.hour*60 + t.minute + mins
     hour = full_minutes // 60
@@ -28,8 +36,23 @@ def add_minutes(t, mins):
         hour -= 24
     return time(hour, minute)
 
+
+def color_task(task):
+    if 'Lecture' in task:
+        return COLOR_LECTURE
+    elif 'Math' in task or 'Uni' in task:
+        return COLOR_STUDY
+    elif 'Breakfast' in task or 'Snack' in task:
+        return COLOR_MEAL
+    elif 'Work' in task or 'Prepare for work' in task:
+        return COLOR_WORK
+    elif 'Relax' in task or 'Wait' in task:
+        return COLOR_RELAX
+    else:
+        return COLOR_MORNING
+
+
 def make_schedule(day: str, lectures: list, uni_done=False):
-    global available_lunches, available_dinners
     schedule = []
 
     # Morning routine
@@ -40,82 +63,49 @@ def make_schedule(day: str, lectures: list, uni_done=False):
     last_end = time(8,0)
     if day in {"Sun", "Wed"}:
         schedule.append((time(8,0), time(10,0), "Shopping & meal prep"))
-        available_lunches = MEALS_PER_PREP
-        available_dinners = MEALS_PER_PREP
         last_end = time(10,0)
         if lectures and lectures[0][0] > last_end:
             schedule.append((last_end, lectures[0][0], "Relax"))
             last_end = lectures[0][0]
 
-    # Insert lectures
-    for start, end in lectures:
-        schedule.append((start, end, "Lecture"))
-
-    # Insert lunch around 12:30 if possible
-    lunch_added = False
+    # Insert lectures and study blocks
     for start, end in lectures:
         gap_start = last_end
         gap_end = start
         gap_minutes = (gap_end.hour*60 + gap_end.minute) - (gap_start.hour*60 + gap_start.minute)
-
-        if not lunch_added and available_lunches > 0:
-            lunch_start = time(12,30)
-            if gap_start <= lunch_start < gap_end:
-                if (lunch_start.hour*60 + lunch_start.minute - gap_start.hour*60 - gap_start.minute) >= 15:
-                    schedule.append((gap_start, lunch_start, "Math study" if uni_done else "Uni work"))
-                lunch_end = add_minutes(lunch_start, 30)
-                schedule.append((lunch_start, lunch_end, "Lunch"))
-                available_lunches -= 1
-                last_end = lunch_end
-                lunch_added = True
-                continue
-
         if gap_minutes >= 60:
             schedule.append((gap_start, gap_end, "Math study" if uni_done else "Uni work"))
-        last_end = max(last_end, end)
-
-    # Ensure lunch if not yet eaten today
-    if not lunch_added and available_lunches > 0:
-        lunch_start = max(last_end, time(12,30))
-        lunch_end = add_minutes(lunch_start, 30)
-        schedule.append((lunch_start, lunch_end, "Lunch"))
-        available_lunches -= 1
-        last_end = lunch_end
+        schedule.append((start, end, "Lecture"))
+        last_end = end
 
     # Fill remaining day
+    day_end_time = time(16,30) if day in WORK_DAYS else time(20,0)
+    if last_end < day_end_time:
+        schedule.append((last_end, day_end_time, "Math study" if uni_done else "Uni work"))
+        last_end = day_end_time
+
     if day in WORK_DAYS:
-        if last_end < time(16,30):
-            schedule.append((last_end, time(16,30), "Math study" if uni_done else "Uni work"))
         schedule.append((time(16,30), time(16,40), "Prepare for work + snack"))
         schedule.append((time(16,40), time(21,20), "Work (incl. commute)"))
         schedule.append((time(21,20), time(21,30), "Shower after work"))
-        if available_dinners > 0:
-            schedule.append((time(21,30), time(22,0), "Dinner"))
-            available_dinners -= 1
+        schedule.append((time(21,30), time(22,0), "Dinner"))
         schedule.append((time(22,0), time(22,5), "Make breakfast for tomorrow"))
         schedule.append((time(22,5), time(22,15), "Bedtime routine"))
         schedule.append((time(22,15), time(0,0), "Free time"))
     else:
-        # Non-workdays: continue Math study until evening with snack at 16:00
-        if last_end < time(16,0):
-            schedule.append((last_end, time(16,0), "Math study" if uni_done else "Uni work"))
-            last_end = time(16,0)
         schedule.append((time(16,0), time(16,15), "Snack"))
-        last_end = time(16,15)
         if last_end < time(20,0):
-            schedule.append((last_end, time(20,0), "Math study" if uni_done else "Uni work"))
-            last_end = time(20,0)
+            schedule.append((time(16,15), time(20,0), "Math study" if uni_done else "Uni work"))
         schedule.append((time(20,0), time(20,10), "Shower"))
         schedule.append((time(20,10), time(21,0), "Relax"))
-        if available_dinners > 0:
-            schedule.append((time(21,0), time(21,30), "Dinner"))
-            available_dinners -= 1
+        schedule.append((time(21,0), time(21,30), "Dinner"))
         schedule.append((time(21,30), time(21,35), "Make breakfast for tomorrow"))
         schedule.append((time(21,35), time(21,45), "Bedtime routine"))
         schedule.append((time(21,45), time(0,0), "Free time"))
 
     schedule = merge_blocks(schedule)
     return sorted(schedule, key=lambda x: x[0])
+
 
 # Prompt user for input
 day = input("Enter day (Mon, Tue, Wed, Thu, Fri, Sat, Sun): ").strip()
@@ -134,10 +124,8 @@ uni_done = input("All uni work done already? (y/n): ").strip().lower() == 'y'
 
 schedule = make_schedule(day, lectures, uni_done)
 
-print("\nSchedule:")
+print(f"\n{COLOR_BOLD}Schedule for {day}:{COLOR_RESET}")
 for start, end, task in schedule:
-    print(f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')} : {task}")
-
-print(f"\nAvailable lunches left: {available_lunches}")
-print(f"Available dinners left: {available_dinners}")
+    color = color_task(task)
+    print(f"{color}{start.strftime('%H:%M')} - {end.strftime('%H:%M')} : {task}{COLOR_RESET}")
 
